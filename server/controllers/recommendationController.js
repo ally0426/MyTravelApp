@@ -1,19 +1,53 @@
-const axios = require("axios");
+// const { OAuth2Client } = require("google-auth-library");
+// const axios = require("axios");
 
-// Heler fuctgion to verify the token with Google
-const verifyToken = async (token) => {
-  console.log(`token TOKENNNNNN: ${token}`);
+// const client = new OAuth2Client(
+//   process.env.GOOGLE_CLIENT_ID,
+//   process.env.GOOGLE_CLIENT_SECRET,
+//   process.env.GOOGLE_REDIRECT_URI,
+//   process.env.GOOGLE_API_KEY,
+//   process.env.NLP_API_ENDPOINT,
+//   process.env.PLACES_API_KEY
+// );
+// console.log("client on top of recommendationController.js: ", client);
+
+// // Helper function to verify the token with Google
+// const verifyToken = async (token) => {
+//   console.log(`token TOKENNNNNN: ${token}`);
+//   try {
+//     const response = await axios.get(
+//       "https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${token}"
+//     );
+//     return response.data;
+//   } catch (error) {
+//     console.error(
+//       "Error verifying token:",
+//       error.response ? error.response.data : error.message
+//     );
+//     throw new Error("Invalid or expired token in recommendationController.js");
+//   }
+// };
+
+const { OAuth2Client } = require("google-auth-library");
+const axios = require("axios");
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID); // Replace with your actual Google Client ID
+
+// Function to refresh access token using refresh token
+const refreshAccessToken = async (refreshToken) => {
   try {
-    const response = await axios.get(
-      "https://www.googleapis.com/oauth2/v1/tokeninfo?access_token=${token}"
-    );
-    return response.data;
+    const response = await axios.post("https://oauth2.googleapis.com/token", {
+      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_secret: process.env.GOOGLE_CLIENT_SECRET,
+      refresh_token: refreshToken,
+      grant_type: "refresh_token",
+    });
+
+    const newAccessToken = response.data.access_token;
+    console.log("New Access Token:", newAccessToken);
+    return newAccessToken;
   } catch (error) {
-    console.error(
-      "Error verifying token:",
-      error.response ? error.response.data : error.message
-    );
-    throw new Error("Invalid or expired token in recommendationController.js");
+    console.error("Error refreshing token:", error);
+    throw new Error("Unable to refresh access token");
   }
 };
 
@@ -83,14 +117,36 @@ const generateRecommendations = (entities) => {
 // Main controller function to handle recommendations
 const getRecommendations = async (req, res) => {
   const { userPreferences, analyzedPhotos, mealPhoto } = req.body;
-  console.log(`req.headers.authorization: ${req.headers.authorization}`);
-  const token =
-    req.headers.authorization && req.headers.authorization.split(" ")[1]; // Extract OAuth token from the header
+
+  console.log("req.headers: ", JSON.stringify(req.headers, null, 2));
+  // console.log(
+  //   "req.headers.authorization: ",
+  //   JSON.stringify(req.headers.authorization, null, 2)
+  // );
+
+  const token = req.headers.authorization?.split(" ")[1]; // Extract OAuth token from the header
+  console.log("token in recommendationController.js: ", token);
 
   if (!token) {
     return res
       .status(401)
       .json({ error: "401 error, authorization token is missing." });
+  }
+
+  try {
+    // Verify the token using Google's OAuth2Client
+    const ticket = await client.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID, // Ensure this matches your Google Client ID
+    });
+    const payload = ticket.getPayload();
+    console.log("Verified user info:", payload);
+    // Continue with the recommendations logic after token verification
+    const recommendations = generateRecommendations(payload); // Or whatever your logic is
+    res.status(200).json({ recommendations });
+  } catch (error) {
+    console.error("Token verificatino failed: ", error.message);
+    res.status(401).json({ error: "Invalid token" });
   }
 
   try {
